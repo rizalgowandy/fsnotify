@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 package fsnotify
 
@@ -12,6 +11,45 @@ import (
 	"testing"
 	"time"
 )
+
+func TestRemoveState(t *testing.T) {
+	var (
+		tmp  = t.TempDir()
+		dir  = join(tmp, "dir")
+		file = join(dir, "file")
+	)
+	mkdir(t, dir)
+	touch(t, file)
+
+	w := newWatcher(t, tmp)
+	addWatch(t, w, tmp)
+	addWatch(t, w, file)
+
+	check := func(want int) {
+		t.Helper()
+		if w.b.(*inotify).watches.len() != want {
+			t.Error(w.b.(*inotify).watches)
+		}
+	}
+
+	check(2)
+
+	// Shouldn't change internal state.
+	if err := w.Add("/path-doesnt-exist"); err == nil {
+		t.Fatal(err)
+	}
+	check(2)
+
+	if err := w.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	check(1)
+
+	if err := w.Remove(tmp); err != nil {
+		t.Fatal(err)
+	}
+	check(0)
+}
 
 // Ensure that the correct error is returned on overflows.
 func TestInotifyOverflow(t *testing.T) {
@@ -93,46 +131,11 @@ func TestInotifyDeleteOpenFile(t *testing.T) {
 	w.collect(t)
 
 	rm(t, file)
+	waitForEvents()
 	e := w.events(t)
 	cmpEvents(t, tmp, e, newEvents(t, `chmod /file`))
 
 	fp.Close()
 	e = w.stop(t)
 	cmpEvents(t, tmp, e, newEvents(t, `remove /file`))
-}
-
-func TestRemoveState(t *testing.T) {
-	var (
-		tmp  = t.TempDir()
-		dir  = join(tmp, "dir")
-		file = join(dir, "file")
-	)
-	mkdir(t, dir)
-	touch(t, file)
-
-	w := newWatcher(t, tmp)
-	addWatch(t, w, tmp)
-	addWatch(t, w, file)
-
-	check := func(want int) {
-		t.Helper()
-		if len(w.watches) != want {
-			t.Error(w.watches)
-		}
-		if len(w.paths) != want {
-			t.Error(w.paths)
-		}
-	}
-
-	check(2)
-
-	if err := w.Remove(file); err != nil {
-		t.Fatal(err)
-	}
-	check(1)
-
-	if err := w.Remove(tmp); err != nil {
-		t.Fatal(err)
-	}
-	check(0)
 }
